@@ -1,3 +1,4 @@
+from dotenv import dotenv_values
 from sqlalchemy import create_engine, text, MetaData, Table, ForeignKey
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -5,10 +6,12 @@ from sqlalchemy.orm import sessionmaker, relationship
 # docs
 # https://docs.sqlalchemy.org/en/14/orm/tutorial.html#querying
 
+ENV_CONFIG = dotenv_values(".env")  # config = {"USER": "foo", "EMAIL": "foo@example.org"}
+
 class Manager:
 
     def __init__(self):
-        self.engine = create_engine('mssql+pymssql://tycoonadmin:5Eo89Wxn6Wzh2bFyAFJy@prodtycoon.database.windows.net:1433/prodtycoon')
+        self.engine = create_engine('mssql+pymssql://{0}:{1}@{2}:{3}/{4}'.format(ENV_CONFIG.DBUSER, ENV_CONFIG.DBPASS, ENV_CONFIG.DBURL, ENV_CONFIG.DBPORT, ENV_CONFIG.DBNAME))
         self.metadata = MetaData()
         self.reflect_all_models()
         self.create_session()
