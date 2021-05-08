@@ -1,7 +1,8 @@
+import sys, getopt
 import time
-import datetime
+from datetime import datetime
 from dotenv import dotenv_values
-from sqlalchemy import create_engine, text, MetaData, Table, ForeignKey, func
+from sqlalchemy import create_engine, text, MetaData, Table, ForeignKey, func, or_, and_
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import sessionmaker, relationship
 import pandas as pd
@@ -56,7 +57,7 @@ class Manager:
             print(mc)
         """
 
-        self.tbl_user, self.tbl_follower, self.tbl_bmel, self.tbl_user_role = self.Base.classes.User, self.Base.classes.Follower, self.Base.classes.BinanceMirrorEventLogs, self.Base.classes.UserRole
+        self.tbl_user, self.tbl_follower, self.tbl_bmel, self.tbl_user_role, self.tbl_kyc_attempts, self.tbl_wallet, self.tbl_transaction = self.Base.classes.User, self.Base.classes.Follower, self.Base.classes.BinanceMirrorEventLogs, self.Base.classes.UserRole, self.Base.classes.KycAttempts, self.Base.classes.Wallet, self.Base.classes.Transaction
     
     def setup_relations(self):
         self.tbl_bmel.user = relationship("User", order_by=self.tbl_user.Id, back_populates="BinanceMirrorEventLogs")
@@ -74,6 +75,9 @@ class Manager:
 
     def addPL(self, pla, plb):
         return ((pla/100) + 1) + ((plb/100)+1)
+
+    def formatNow(self):
+        return datetime.now().strftime("%d.%m.%Y %H:%M")
 
     """Actual data query methods"""
     def get_users_follow_allowed(self):
@@ -137,7 +141,7 @@ class Manager:
                 join(self.tbl_user_role, self.tbl_user.Id==self.tbl_user_role.UserId).\
                 filter(self.tbl_user_role.RoleId==3).\
                 group_by(self.tbl_user.UserName).\
-                order_by(func.sum(self.tbl_bmel.DerivedTradeVolume).desc()).all()[0:10]:
+                order_by(func.sum(self.tbl_bmel.DerivedTradeVolume).desc()).all()[0:int(count)]:
                 users.append(uname)
                 volumes.append('${:.2f}'.format(tvol))
 
@@ -155,25 +159,179 @@ class Manager:
                 join(self.tbl_user_role, self.tbl_user.Id==self.tbl_user_role.UserId).\
                 filter(self.tbl_user_role.RoleId==4).\
                 group_by(self.tbl_user.UserName).\
-                order_by(func.sum(self.tbl_bmel.DerivedTradeVolume).desc()).all()[0:10]:
+                order_by(func.sum(self.tbl_bmel.DerivedTradeVolume).desc()).all()[0:int(count)]:
                 users.append(uname)
                 volumes.append('${:.2f}'.format(tvol))
 
             df = pd.DataFrame({'Follower': users, 'Trading Volume': volumes})
             print(tabulate(df,headers='keys'))
 
+    def get_top_traders_balance(self, count):
+        print('Get top {0} traders by latest portfolio balance:'.format(count))
+        users = []
+        volumes = []
+        balances = []
+        if self.dbsession is not None:
+            # for plamount, in self.dbsession.query(func.sum(self.tbl_bmel.DerivedPositionLnGrowth)).\
+            for usdtbalance, tradevol, uname in self.dbsession.query(func.max(self.tbl_bmel.DerivedUsdtValue).label('balance'), func.sum(self.tbl_bmel.DerivedTradeVolume).label('tradevol'), self.tbl_user.UserName).\
+                join(self.tbl_user, self.tbl_bmel.UserId==self.tbl_user.Id).\
+                join(self.tbl_user_role, self.tbl_user.Id==self.tbl_user_role.UserId).\
+                filter(self.tbl_user_role.RoleId==3).\
+                group_by(self.tbl_user.UserName).\
+                order_by(func.max(self.tbl_bmel.DerivedUsdtValue).desc()).all()[0:int(count)]:
+                users.append(uname)
+                volumes.append('${:.2f}'.format(tradevol))
+                balances.append('${:.2f}'.format(usdtbalance))
 
-started_at = time.monotonic()
+            df = pd.DataFrame({'Trader': users, 'Total Balance': balances, 'Trading Volume': volumes})
+            print(tabulate(df,headers='keys'))
 
-m = Manager()
-# m.get_users_follow_allowed()
-# m.get_followers_of_trader("Moneyguru")
-# m.get_profitloss_alltime("Moneyguru")
-m.get_top_traders_volume(10)
+    def get_top_followers_balance_max(self, count):
+        print('Get top {0} followers by max portfolio balance:'.format(count))
+        users = []
+        volumes = []
+        balances = []
+        if self.dbsession is not None:
+            # for plamount, in self.dbsession.query(func.sum(self.tbl_bmel.DerivedPositionLnGrowth)).\
+            for usdtbalance, tradevol, uname in self.dbsession.query(func.max(self.tbl_bmel.DerivedUsdtValue).label('balance'), func.sum(self.tbl_bmel.DerivedTradeVolume).label('tradevol'), self.tbl_user.UserName).\
+                join(self.tbl_user, self.tbl_bmel.UserId==self.tbl_user.Id).\
+                join(self.tbl_user_role, self.tbl_user.Id==self.tbl_user_role.UserId).\
+                filter(self.tbl_user_role.RoleId==4).\
+                group_by(self.tbl_user.UserName).\
+                order_by(func.max(self.tbl_bmel.DerivedUsdtValue).desc()).all()[0:int(count)]:
+                users.append(uname)
+                volumes.append('${:.2f}'.format(tradevol))
+                balances.append('${:.2f}'.format(usdtbalance))
 
-duration = time.monotonic() - started_at
-duration_minutes = duration/60
-print(f'Elapsed time: {duration_minutes:.2f} minutes')
+            df = pd.DataFrame({'Follower': users, 'Total Balance': balances, 'Trading Volume': volumes})
+            print(tabulate(df,headers='keys'))
+
+    def get_top_followers_balance(self, count):
+        print('Get top {0} followers by latest portfolio balance:'.format(count))
+        users = []
+        balances = []
+        if self.dbsession is not None:
+            # for plamount, in self.dbsession.query(func.sum(self.tbl_bmel.DerivedPositionLnGrowth)).\
+            for usdtbalance, uname in self.dbsession.query(self.tbl_bmel.DerivedUsdtValue, self.tbl_user.UserName).\
+                join(self.tbl_user, self.tbl_bmel.UserId==self.tbl_user.Id).\
+                join(self.tbl_user_role, self.tbl_user.Id==self.tbl_user_role.UserId).\
+                filter(self.tbl_user_role.RoleId==4).\
+                group_by(self.tbl_user.UserName).\
+                order_by(self.tbl_bmel.DateCreated.desc()).all()[0:int(count)]:
+                users.append(uname)
+                balances.append('${:.2f}'.format(usdtbalance))
+
+            df = pd.DataFrame({'Follower': users, 'Latest Balance': balances})
+            print(tabulate(df,headers='keys'))
+
+    def get_cnt_user_with_withdrawals(self, suppress_action = False):
+        if suppress_action == False:
+            print('Get number of users that had at least one withdrawal already:')
+        if self.dbsession is not None:
+            # for plamount, in self.dbsession.query(func.sum(self.tbl_bmel.DerivedPositionLnGrowth)).\
+            num_of_users, = self.dbsession.query(func.count(self.tbl_user.Id)).\
+                filter(
+                    text("exists (select t2.Id from [Transaction] t2 join Wallet w2 on w2.Id = t2.WalletId where w2.UserId = [User].[Id] and t2.Amount < 0 and t2.TransactionType = 1)")
+                ).first()
+
+            print("{0} users already had at least one withdrawal as of {1}".format(num_of_users, self.formatNow()))
+
+    def get_cnt_users_basisid_kyc(self, suppress_action = False):
+        if suppress_action == False:
+            print('Get number of users that completed BasisId KYC successfully:')
+        if self.dbsession is not None:
+            # for plamount, in self.dbsession.query(func.sum(self.tbl_bmel.DerivedPositionLnGrowth)).\
+            num_of_users, = self.dbsession.query(func.count(self.tbl_user.Id)).\
+                filter(self.tbl_user.IsBasisKycDone==1).first()
+
+            print("{0} users completed BasisId KYC successfully as of {1}".format(num_of_users, self.formatNow()))
+
+    def get_cnt_users_basisid_kyc_with_balance(self, suppress_action = False):
+        if suppress_action == False:
+            print('Get number of users that completed BasisId KYC successfully with balance > 0 TYC:')
+        if self.dbsession is not None:
+            # for plamount, in self.dbsession.query(func.sum(self.tbl_bmel.DerivedPositionLnGrowth)).\
+            num_of_users, = self.dbsession.query(func.count(self.tbl_user.Id)).\
+                filter(self.tbl_user.IsBasisKycDone==1).\
+                filter(text("(select sum(t2.Amount) from [Transaction] t2 join Wallet w2 on w2.Id = t2.WalletId where w2.UserId = [User].[Id]) > 0")).first()
+
+            print("{0} users with TYC balance > 0 completed BasisId KYC successfully as of {1}".format(num_of_users, self.formatNow()))
+
+    def get_cnt_users_basisid_kyc_withdrawn_all(self, suppress_action = False):
+        if suppress_action == False:
+            print('Get number of users that completed BasisId KYC successfully and withdrew all their token:')
+        if self.dbsession is not None:
+            # for plamount, in self.dbsession.query(func.sum(self.tbl_bmel.DerivedPositionLnGrowth)).\
+            num_of_users, = self.dbsession.query(func.count(self.tbl_user.Id)).\
+                filter(self.tbl_user.IsBasisKycDone==1).\
+                filter(text("(select sum(abs(t2.Amount)) from [Transaction] t2 join Wallet w2 on w2.Id = t2.WalletId where w2.UserId = [User].[Id] and t2.TransactionType = 1) = (select sum(abs(t2.Amount)) from [Transaction] t2 join Wallet w2 on w2.Id = t2.WalletId where w2.UserId = [User].[Id] and t2.TransactionType <> 1 and t2.TransactionType <> 2)")).first()
+
+            print("{0} users completed BasisId KYC successfully and withdrew everything as of {1}".format(num_of_users, self.formatNow()))
+
+    def get_sum_unlocked_tyc_wallets(self, suppress_action = False):
+        if suppress_action == False:
+            print('Get sum of all unlocked TYC currently in wallets:')
+        if self.dbsession is not None:
+            # need to customize to respect vesting rules for other wallet types later
+            num_of_users, = self.dbsession.query(func.sum(self.tbl_transaction.Amount)).\
+                filter(or_(self.tbl_transaction.WalletType==1, self.tbl_transaction.WalletType==0)).first()
+
+            print("{0} TYC in total are unlocked available in wallets as of {1} (query to be refined)".format(num_of_users, self.formatNow()))
+
+    def get_cnt_users(self, suppress_action = False):
+        if suppress_action == False:
+            print('Get count of all verified users:')
+        if self.dbsession is not None:
+            # need to customize to respect vesting rules for other wallet types later
+            num_of_users, = self.dbsession.query(func.count(self.tbl_user.Id)).\
+                filter(self.tbl_user.Deleted==0).\
+                filter(self.tbl_user.EmailConfirmed==1).first()
+
+            print("{0} verified users as of {1}".format(num_of_users, self.formatNow()))
+
+    def get_slt_general_status(self):
+        self.get_cnt_users(True)
+        self.get_cnt_users_basisid_kyc(True)
+        self.get_cnt_users_basisid_kyc_with_balance(True)
+        self.get_cnt_user_with_withdrawals(True)
+        self.get_cnt_users_basisid_kyc_withdrawn_all(True)
+        self.get_sum_unlocked_tyc_wallets(True)
+
+    def supp_check(self, email):
+        print('General checkup of email {0}:'.format(email))
+        if self.dbsession is not None:
+            userobj = self.dbsession.query(self.tbl_user).filter(self.tbl_user.Email==email).first()
+            # existing
+            if userobj is not None:
+                print('User "{0}"" exists.'.format(userobj.UserName))
+            else:
+                print('No user for email "{0}"'.format(email))
+                return
+            # Email verified
+            if userobj.EmailConfirmed:
+                print('Email verified: yes')
+            else:
+                print('Email verified: no')
+                return
+            # get role
+            user_role = self.dbsession.query(self.tbl_user_role.RoleId).filter(self.tbl_user_role.UserId==userobj.Id).first()
+            print('Role: {0}'.format('Trader' if user_role == 3 else 'Follower'))
+            # has old KYC
+            if userobj.IsKycDone:
+                print('Has old KYC: yes')
+            else:
+                print('Has old KYC: no')
+            # has basisId kyc
+            if userobj.IsBasisKycDone:
+                print('Has BasisId KYC: yes')
+            else:
+                print('Has BasisId KYC: no')
+            # no of kyc attempts
+            kyc_attempts_cnt = self.dbsession.query(self.tbl_kyc_attempts).filter(self.tbl_kyc_attempts.UserId==userobj.Id).count()
+            print('KYC Attempts in total: {0}'.format(kyc_attempts_cnt))
+            # token balance
+
+
 
 """
 timeaxis = [*range(24)]
@@ -198,3 +356,44 @@ with engine.connect() as conn:
     chartdata_followers.append([row.UserName, f_arr])
   # print(result.all())
   """
+
+def main(argv):
+    started_at = time.monotonic()
+    m = Manager()
+
+    try:
+        opts, args = getopt.getopt(argv, "hm:p:",["method=","parameters="])
+    except getopt.GetoptError:
+        print('tyc.py -m support_analyze -p 3310')
+        sys.exit(2)
+
+    userargs = None
+
+    for opt, arg in opts:
+        if opt == "-h":
+            print('tyc.py -m support_analyze -p 3310')
+            sys.exit()
+        elif opt in ("-m", "--method"):
+            methodname = arg
+        elif opt in ("-p", "--parameters"):
+            userargs = arg
+
+    if userargs:
+        getattr(m, methodname)(userargs)
+    else:
+        getattr(m, methodname)()
+
+    # m.get_users_follow_allowed()
+    # m.get_followers_of_trader("Moneyguru")
+    # m.get_profitloss_alltime("Moneyguru")
+    # m.get_top_traders_volume(10)
+    # m.get_top_followers_volume(10)
+    # m.get_top_traders_balance(10)
+    # m.get_top_followers_balance(10)
+
+    duration = time.monotonic() - started_at
+    duration_minutes = duration/60
+    print(f'Elapsed time: {duration_minutes:.2f} minutes')
+
+if __name__ == "__main__":
+   main(sys.argv[1:])
