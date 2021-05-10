@@ -326,11 +326,16 @@ class Manager:
                 print('Has BasisId KYC: yes')
             else:
                 print('Has BasisId KYC: no')
+                # now check if our common KYC error is there
+                num_success_attempts, = self.dbsession.query(func.count(self.tbl_kyc_attempts.Id)).\
+                    filter(self.tbl_kyc_attempts.UserId == userobj.Id).\
+                    filter(self.tbl_kyc_attempts.BasisIdStatus == 10).first()
+                if num_success_attempts >= 1:
+                    print('Has KYC issue (status 10 but not set on user record)')
             # no of kyc attempts
             kyc_attempts_cnt = self.dbsession.query(self.tbl_kyc_attempts).filter(self.tbl_kyc_attempts.UserId==userobj.Id).count()
             print('KYC Attempts in total: {0}'.format(kyc_attempts_cnt))
             # token balance
-
 
 
 """
