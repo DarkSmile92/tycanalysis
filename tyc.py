@@ -289,6 +289,17 @@ class Manager:
 
             print("{0} verified users as of {1}".format(num_of_users, self.formatNow()))
 
+    def get_last_activity(self, username, suppress_action = False):
+        if suppress_action == False:
+            print('Get last activity of user {0}'.format(username))
+        if self.dbsession is not None:
+            user_id = self.dbsession.query(self.tbl_user.Id).filter(self.tbl_user.UserName==username).first()
+            for exchangetimestamp, usdtval, growth in self.dbsession.query(self.tbl_bmel.ExchangeTimeStamp, self.tbl_bmel.DerivedUsdtValue, self.tbl_bmel.DerivedPositionLnGrowth).\
+                filter(self.tbl_bmel.UserId==user_id).\
+                order_by(self.tbl_bmel.ExchangeTimeStamp.desc()).all()[0:1]:
+                print('Activity Date: {0} Portfolio USDT: ${1:.2f} PositionLnGrowth: {2}%'.format(self.formatDate(exchangetimestamp), usdtval, growth))
+
+
     def get_slt_general_status(self):
         self.get_cnt_users(True)
         self.get_cnt_users_basisid_kyc(True)
