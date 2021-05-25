@@ -11,6 +11,8 @@ from tabulate import tabulate
 # docs
 # https://docs.sqlalchemy.org/en/14/orm/tutorial.html#querying
 
+# Performance: https://docs.sqlalchemy.org/en/14/faq/performance.html
+
 try:
     ENV_CONFIG = dotenv_values(".env")  # config = {"USER": "foo", "EMAIL": "foo@example.org"}
 except ImportError as e:
