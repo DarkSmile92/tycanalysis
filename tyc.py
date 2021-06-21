@@ -348,6 +348,7 @@ class Manager:
             # no of kyc attempts
             kyc_attempts_cnt = self.dbsession.query(self.tbl_kyc_attempts).filter(self.tbl_kyc_attempts.UserId==userobj.Id).count()
             print('KYC Attempts in total: {0}'.format(kyc_attempts_cnt))
+            print('Is allowed to follow: {0}'.format('yes' if userobj.IsFollowingAllowed else 'no'))
             # token balance
 
 
